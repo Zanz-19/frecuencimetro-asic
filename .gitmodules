@@ -1,0 +1,12 @@
+[submodule "ip/ip/dac_r2r"]
+	path = ip/ip/dac_r2r
+	url = https://github.com/mattvenn/tt06-analog-r2r-dac.git
+[submodule "ip/ip/adc_sar"]
+	path = ip/ip/adc_sar
+	url = https://github.com/chipfoundry/sky130_ef_ip__adc3v_12bit.git
+[submodule "ip/dac_r2r"]
+	path = ip/dac_r2r
+	url = https://github.com/mattvenn/tt06-analog-r2r-dac.git
+[submodule "ip/adc_sar"]
+	path = ip/adc_sar
+	url = https://github.com/chipfoundry/sky130_ef_ip__adc3v_12bit.git
