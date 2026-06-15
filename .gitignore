@@ -1,0 +1,16 @@
+# Simulaciones y resultados temporales
+sim/results/*.raw
+*.log
+*.err
+
+# LibreLane / OpenLane
+runs/
+*.pyc
+__pycache__/
+
+# Jupyter checkpoints
+notebooks/.ipynb_checkpoints/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
