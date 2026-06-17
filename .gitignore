@@ -14,3 +14,8 @@ notebooks/.ipynb_checkpoints/
 # Archivos de sistema
 .DS_Store
 Thumbs.db
+
+# Archivos generados por simulación iverilog (no son código fuente)
+build/
+*.vvp
+*.vcd
