@@ -49,8 +49,8 @@ wave:
 		echo "No existe $(BUILD_DIR)/tb_$(MODULE).vcd — corre 'make sim MODULE=$(MODULE)' primero"; \
 		exit 1; \
 	fi
-	gtkwave $(BUILD_DIR)/tb_$(MODULE).vcd &
-
+	@gtkwave $(BUILD_DIR)/tb_$(MODULE).vcd > /dev/null 2>&1 &
+	@echo "GTKWave abierto en background (PID $$!). La terminal queda libre."
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -f *.vvp *.vcd
