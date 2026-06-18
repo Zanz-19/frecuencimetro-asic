@@ -2,15 +2,21 @@
 # Automatiza compilación y simulación de testbenches con iverilog.
 #
 # Uso:
-#   make sim MODULE=cdc_sync          → compila y corre el TB de cdc_sync
-#   make wave MODULE=cdc_sync         → abre GTKWave con el .vcd generado
-#   make clean                        → borra todos los archivos generados
-#   make list                         → lista los módulos disponibles en rtl/
+#   make sim MODULE=cdc_sync                                    → compila y corre el TB
+#   make sim MODULE=adc_ctrl EXTRA_SRC=ip/adc_sar/verilog/sar_ctrl.v
+#                                                                → con dependencia externa (IP real)
+#   make wave MODULE=cdc_sync                                   → abre GTKWave con el .vcd generado
+#   make clean                                                  → borra todos los archivos generados
+#   make list                                                   → lista los módulos disponibles en rtl/
 #
 # Estructura esperada:
 #   rtl/<modulo>.v       → código fuente del módulo
 #   tb/tb_<modulo>.v     → testbench correspondiente
 #   build/sim/           → carpeta de salida (ignorada por git)
+#
+# EXTRA_SRC: lista opcional de archivos fuente adicionales (separados por
+# espacio) necesarios para compilar el testbench, típicamente IPs reales
+# bajo ip/ que el módulo bajo prueba instancia directamente.
 
 BUILD_DIR := build/sim
 RTL_DIR   := rtl
@@ -22,7 +28,7 @@ IVERILOG_FLAGS := -g2012 -Wall
 
 help:
 	@echo "Uso:"
-	@echo "  make sim MODULE=<nombre>    Compila y corre el testbench"
+	@echo "  make sim MODULE=<nombre> [EXTRA_SRC=\"archivo1.v archivo2.v\"]"
 	@echo "  make wave MODULE=<nombre>   Abre GTKWave con el resultado"
 	@echo "  make clean                 Borra archivos generados"
 	@echo "  make list                  Lista modulos disponibles en rtl/"
@@ -35,7 +41,7 @@ sim:
 	@mkdir -p $(BUILD_DIR)
 	@echo "=== Compilando $(MODULE) ==="
 	iverilog $(IVERILOG_FLAGS) -o $(BUILD_DIR)/tb_$(MODULE).vvp \
-		$(TB_DIR)/tb_$(MODULE).v $(RTL_DIR)/$(MODULE).v
+		$(TB_DIR)/tb_$(MODULE).v $(RTL_DIR)/$(MODULE).v $(EXTRA_SRC)
 	@echo "=== Ejecutando simulación ==="
 	vvp $(BUILD_DIR)/tb_$(MODULE).vvp
 	@mv -f tb_$(MODULE).vcd $(BUILD_DIR)/ 2>/dev/null || true
