@@ -43,8 +43,15 @@ sim:
 	iverilog $(IVERILOG_FLAGS) -o $(BUILD_DIR)/tb_$(MODULE).vvp \
 		$(TB_DIR)/tb_$(MODULE).v $(RTL_DIR)/$(MODULE).v $(EXTRA_SRC)
 	@echo "=== Ejecutando simulación ==="
+	@rm -f *.vcd
 	vvp $(BUILD_DIR)/tb_$(MODULE).vvp
 	@mv -f tb_$(MODULE).vcd $(BUILD_DIR)/ 2>/dev/null || true
+	@for f in *.vcd; do \
+		if [ -f "$$f" ]; then \
+			echo "Nota: la IP forzó su propio nombre de VCD ('$$f'); renombrando a tb_$(MODULE).vcd"; \
+			mv -f "$$f" $(BUILD_DIR)/tb_$(MODULE).vcd; \
+		fi; \
+	done
 
 wave:
 	@if [ -z "$(MODULE)" ]; then \
