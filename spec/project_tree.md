@@ -1,10 +1,11 @@
 # Árbol de Archivos del Proyecto — Frecuencímetro ASIC
-**Versión:** 3.0 — Estructura 100% verificada contra repos clonados  
+**Versión:** 4.0 — Fase 2 completada (7/8 módulos RTL verificados por simulación real)
 **Leyenda:**
 - ✅ `[EXISTE]` — archivo real verificado
 - ⚠️ `[EXISTE*]` — existe con nombre/estructura diferente a lo anticipado
 - 🔲 `[PENDIENTE]` — a crear en la fase indicada
 - 🔑 `[CLAVE]` — archivo especialmente importante para el proyecto
+- 🧪 `[VERIFICADO]` — módulo con testbench pasando al 100%, IP real integrada cuando aplica
 
 ---
 
@@ -16,10 +17,10 @@ frecuencimetro_asic/
 ├── .gitmodules                                      ✅ [FASE 1]
 │
 ├── spec/
-│   ├── spec.md                                      ✅ [FASE 1] v2.0
-│   ├── pin_map.md                                   ✅ [FASE 1] v3.0 — FINAL
-│   ├── module_list.md                               ✅ [FASE 1] v2.0 — FINAL
-│   └── project_tree.md                              ✅ [FASE 1] v3.0 — este archivo
+│   ├── spec.md                                      ✅ [FASE 2] v2.0 — actualizado con hallazgos
+│   ├── pin_map.md                                   ✅ [FASE 2] v4.0 — corrige polaridad reset DAC
+│   ├── module_list.md                               ✅ [FASE 2] v3.0 — 7/8 módulos documentados
+│   └── project_tree.md                              ✅ [FASE 2] v4.0 — este archivo
 │
 ├── ip/
 │   │
@@ -29,8 +30,8 @@ frecuencimetro_asic/
 │   │   │   └── project.v             🔑 [EXISTE] Top-level stub TinyTapeout
 │   │   │                                          tt_um_mattvenn_r2r_dac
 │   │   │                                          Pines: ui_in[7:0], uio_in[1:0],
-│   │   │                                          clk, rst_n(⚠️activo ALTO),
-│   │   │                                          ena, ua[0]
+│   │   │                                          clk, rst_n, ena, ua[0]
+│   │   │                                          ⚠️ Ver nota de n_rst abajo (rtl/)
 │   │   │
 │   │   ├── verilog/
 │   │   │   ├── rtl/
@@ -39,6 +40,11 @@ frecuencimetro_asic/
 │   │   │   │                                      Pines: clk, n_rst, ext_data,
 │   │   │   │                                      data[7:0], load_divider,
 │   │   │   │                                      r2r_out[7:0]
+│   │   │   │                                      ✅ VERIFICADO (Fase 2, 20/20 tests):
+│   │   │   │                                      n_rst funciona como ENABLE
+│   │   │   │                                      activo-alto, NO como reset
+│   │   │   │                                      invertido. dac_n_rst = rst_n
+│   │   │   │                                      SIN inversión (ver dac_ctrl.v)
 │   │   │   ├── gl/
 │   │   │   │   ├── r2r_dac_control.v ✅ [EXISTE] Netlist gate-level
 │   │   │   │   └── tt_um_mattvenn_r2r_dac.v ✅ [EXISTE] Netlist GL top
@@ -107,6 +113,9 @@ frecuencimetro_asic/
 │       │   │                                     en, swidth[3:0], sample_n,
 │       │   │                                     data[SIZE-1:0], eoc, dac_rst
 │       │   │                                     ✅ SIZE=12 confirmado por SPICE
+│       │   │                                     y por simulacion (Fase 2)
+│       │   │                                     ✅ Timing soc→eoc verificado:
+│       │   │                                     15+swidth ciclos (medido)
 │       │   ├── sky130_ef_ip__adc3v_12bit.v 🔑 [EXISTE] Modelo behavioral analógico
 │       │   │                                     Pines: adc_in, adc_ena,
 │       │   │                                     adc_reset, adc_hold,
@@ -165,21 +174,33 @@ frecuencimetro_asic/
 │       ├── README.md                 ✅ [EXISTE]
 │       └── LICENSE                   ✅ [EXISTE]
 │
+├── Makefile                          ✅ [FASE 2] Automatiza make sim/wave/clean/list
+│   │                                            Soporta EXTRA_SRC para IPs externas
+│   │                                            (ver rtl/adc_ctrl.v, rtl/dac_ctrl.v)
+│
 ├── rtl/                              ← Módulos Verilog nuevos (Fase 2)
-│   ├── cdc_sync.v                   🔲 [FASE 2] #1 — sin dependencias
-│   ├── gate_timer.v                 🔲 [FASE 2] #2 — sin dependencias
-│   ├── freq_counter.v               🔲 [FASE 2] #3 — usa gate_en
-│   ├── result_latch.v               🔲 [FASE 2] #4 — usa count_out, gate_done
-│   ├── adc_ctrl.v                   🔲 [FASE 2] #5 — usa eoc_sync de cdc_sync
-│   ├── dac_ctrl.v                   🔲 [FASE 2] #6 — sin dependencias nuevas
-│   ├── wb_regs.v                    🔲 [FASE 2] #7 — usa todos los anteriores
-│   └── freq_top.v                   🔲 [FASE 2] #8 — instancia todo
+│   ├── cdc_sync.v                   🧪 [VERIFICADO] #1 — 12/12 tests
+│   ├── gate_timer.v                 🧪 [VERIFICADO] #2 — 12/12 tests
+│   ├── freq_counter.v               🧪 [VERIFICADO] #3 — 9/9 tests
+│   ├── result_latch.v               🧪 [VERIFICADO] #4 — 14/14 tests
+│   ├── adc_ctrl.v                   🧪 [VERIFICADO] #5 — 13/13 tests
+│   │                                            integrado con sar_ctrl.v REAL
+│   ├── dac_ctrl.v                   🧪 [VERIFICADO] #6 — 20/20 tests
+│   │                                            integrado con r2r_dac_control.v REAL
+│   │                                            ⚠️ dac_n_rst = rst_n SIN inversión
+│   │                                            (hallazgo critico, ver pin_map.md v4.0)
+│   ├── wb_regs.v                    🧪 [VERIFICADO] #7 — 30/30 tests
+│   └── freq_top.v                   🔲 [FASE 2] #8 — instancia todo, PENDIENTE
 │
 ├── tb/                              ← Testbenches iverilog unitarios (Fase 2)
-│   ├── tb_cdc_sync.v                🔲 [FASE 2]
-│   ├── tb_gate_timer.v              🔲 [FASE 2]
-│   ├── tb_freq_counter.v            🔲 [FASE 2]
-│   └── tb_freq_top.v                🔲 [FASE 2]
+│   ├── tb_cdc_sync.v                🧪 [VERIFICADO]
+│   ├── tb_gate_timer.v              🧪 [VERIFICADO]
+│   ├── tb_freq_counter.v            🧪 [VERIFICADO]
+│   ├── tb_result_latch.v            🧪 [VERIFICADO]
+│   ├── tb_adc_ctrl.v                🧪 [VERIFICADO] instancia sar_ctrl real
+│   ├── tb_dac_ctrl.v                🧪 [VERIFICADO] instancia r2r_dac_control real
+│   ├── tb_wb_regs.v                 🧪 [VERIFICADO] maestro Wishbone simple
+│   └── tb_freq_top.v                🔲 [FASE 2] PENDIENTE
 │
 ├── tests/                           ← Tests cocotb Python (Fase 3)
 │   ├── Makefile                     🔲 [FASE 3]
@@ -252,15 +273,38 @@ frecuencimetro_asic/
 
 ---
 
-## Pendientes abiertos al cierre de Fase 1
+## Resumen de verificación — Fase 2
 
-| # | Pendiente | Fase donde se resuelve |
-|---|---|---|
-| ⚠️ | Nivel de reset DAC: 3V en sim original vs 1.8V del pad digital | Fase 4 — simular umbral con ngspice |
-| ⚠️ | Frecuencia máxima DAC: comentario dice 10 MHz | Fase 3 — verificar con cocotb a 100 MHz |
-| ⚠️ | Ruta PDK hardcoded en `mixed.cir` | Fase 5 — reemplazar con `$PDK_ROOT` |
-| ⚠️ | Fuente de referencias vrefH/vrefL/vCM del ADC | Fase 6 — definir en floorplan del wrapper |
-| ⚠️ | Descomprimir `sky130_ef_ip__adc3v_12bit.gds.gz` | Fase 6 — antes de P&R |
+| Módulo | Tests | IP real integrada | Bug encontrado |
+|---|---|---|---|
+| cdc_sync.v | 12/12 ✅ | — | Ninguno |
+| gate_timer.v | 12/12 ✅ | — | Solo en testbench (off-by-one en espera) |
+| freq_counter.v | 9/9 ✅ | — | Solo en testbench (carrera de simulación, regla del `#1`) |
+| result_latch.v | 14/14 ✅ | — | Ninguno |
+| adc_ctrl.v | 13/13 ✅ | sar_ctrl.v | Solo en testbench (modelo de comparador, bandera persistente) |
+| dac_ctrl.v | 20/20 ✅ | r2r_dac_control.v | **En el RTL real** — polaridad de reset corregida |
+| wb_regs.v | 30/30 ✅ | — | Ninguno |
+| freq_top.v | — | ambas | Pendiente |
+| **Total** | **110/110** | | |
+
+**Hallazgo más importante:** `dac_ctrl.v` tenía un bug real (no solo de testbench) heredado de la documentación de Fase 1: se asumía que `n_rst` de la IP del DAC requería inversión respecto a `rst_n`. La simulación contra la IP real demostró que NO se invierte. Ver `pin_map.md` v4.0 para el análisis completo.
+
+---
+
+## Pendientes abiertos al cierre de Fase 2
+
+| # | Pendiente | Estado | Fase donde se resuelve |
+|---|---|---|---|
+| ✅ | Polaridad de reset del DAC | **Resuelto** | — |
+| ✅ | SIZE del ADC (8 vs 12) | **Resuelto, doble confirmación (SPICE + simulación)** | — |
+| ✅ | Timing soc→eoc del ADC | **Resuelto por medición empírica** | — |
+| 🔲 | freq_top.v — integración completa | Pendiente | Fase 2 (siguiente paso) |
+| ⚠️ | Conectar wb_regs.adc_swidth → adc_ctrl en la integración | Pendiente | Fase 2 (freq_top.v) |
+| ⚠️ | Nivel de reset DAC: 3V en sim original vs 1.8V del pad digital | Abierto (nivel de tensión, no polaridad) | Fase 4 — simular umbral con ngspice |
+| ⚠️ | Frecuencia máxima DAC: comentario dice 10 MHz | Abierto | Fase 3 — verificar con cocotb a 100 MHz |
+| ⚠️ | Ruta PDK hardcoded en `mixed.cir` | Abierto | Fase 5 — reemplazar con `$PDK_ROOT` |
+| ⚠️ | Fuente de referencias vrefH/vrefL/vCM del ADC | Abierto | Fase 6 — definir en floorplan del wrapper |
+| ⚠️ | Descomprimir `sky130_ef_ip__adc3v_12bit.gds.gz` | Abierto | Fase 6 — antes de P&R |
 
 ---
 
@@ -271,3 +315,4 @@ frecuencimetro_asic/
 | 1.0 | Junio 2025 | Estructura anticipada |
 | 2.0 | Junio 2025 | Actualizado con repos reales clonados |
 | 3.0 | Junio 2025 | Pines 100% verificados desde SPICE; archivos clave marcados; mapa por fase añadido |
+| 4.0 | Junio 2025 | **Fase 2 completada (7/8 módulos, 110/110 tests).** Agrega Makefile al árbol. Corrige nota de polaridad de reset del DAC (era incorrecta). Agrega timing verificado del ADC. Marca todos los módulos y testbenches verificados con 🧪 |

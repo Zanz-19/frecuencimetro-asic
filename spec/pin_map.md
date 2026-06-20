@@ -1,155 +1,162 @@
 # Mapa de Pines — Frecuencímetro ASIC en Caravel
-**Versión:** 3.0 — Pines 100% verificados desde SPICE, Verilog y simulaciones  
-**Estado:** Fase 1 CERRADA · Listo para Fase 2  
-**Fuentes verificadas:**
-- `ip/dac_r2r/src/project.v` + `verilog/rtl/r2r_dac_control.v` + `sim/mixed.cir`
-- `ip/adc_sar/netlist/schematic/sky130_ef_ip__adc3v_12bit.spice` + `verilog/sar_ctrl.v`
+**Versión:** 4.0 — Incorpora hallazgos de Fase 2 verificados por simulación RTL real
+**Estado:** Fase 2 completada (7/8 módulos) · Verificado contra simulación con IPs reales (`sar_ctrl.v`, `r2r_dac_control.v`)
+**Fuentes verificadas en esta versión:**
+- Simulación iverilog de `adc_ctrl.v` + `sar_ctrl.v` real (13/13 tests)
+- Simulación iverilog de `dac_ctrl.v` + `r2r_dac_control.v` real (20/20 tests)
+- Medición empírica de timing `soc→eoc` directamente sobre `sar_ctrl.v`
 
 ---
 
-## HALLAZGOS FINALES v3.0 (diferencias respecto a v2.0)
+## ⚠️ CORRECCIÓN CRÍTICA v4.0 — Reset del DAC
 
-| # | Supuesto v2.0 | Realidad confirmada v3.0 | Impacto en Fase 2 |
-|---|---|---|---|
-| 1 | Pines ADC analógico: `adc0`, `adc0_ena`, `adc0_hold`... | Pines reales: `adc_in`, `adc_ena`, `adc_hold`, `adc_reset`, `adc_dac_val[11:0]`, `adc_comp_out` | Solo afecta Fase 4 (Xschem) — `adc_ctrl.v` se conecta a `sar_ctrl`, no a este bloque |
-| 2 | SIZE=8 por defecto en sar_ctrl, dudábamos si era 12 | El esquemático Xschem muestra `adc_dac_val[11:0]` (12 líneas numeradas 0-11) → **SIZE=12 confirmado** | `adc_ctrl.v` usa `data[11:0]` — correcto como teníamos |
-| 3 | Reset DAC activo alto a 1.8 V | `mixed.cir`: `PULSE 3 0` — reset en la simulación original usa **3 V** | En sky130, los pads HVL soportan 3.3 V. Conectar `dac_n_rst` desde pad 3.3 V o usar nivel shifter. Investigar en Fase 4. |
-| 4 | Pines de cosimulación del DAC no confirmados | `mixed.cir` confirma exactamente: entradas `clk n_rst ext_data d[7:0] load_divider`, salidas `b[7:0]` | `dac_ctrl.v` conecta `b[7:0]` a la red R-2R, no `r2r_out` directamente |
-| 5 | Ruta PDK en simulaciones de las IPs | `mixed.cir` tiene ruta hardcoded a máquina de Matt: `/home/matt/work/.../sky130.lib.spice` | En Fase 5: reemplazar con variable `$PDK_ROOT` o ruta local |
-| 6 | ADC tiene sub-IPs `ccomp3v` y `cdac3v_12bit` | Confirmado: comparador es `sky130_ef_ip__scomp3v`, CDAC es `sky130_ef_ip__cdac3v_12bit` con 12 bits SELD[11:0] | No afecta Fase 2. Relevante para Fase 4 (Xschem) y Fase 5 (ngspice) |
+**v3.0 indicaba (INCORRECTO, sin verificar por simulación):**
+> `rst_n`... Activo ALTO en la IP. Conectado a: `~rst_n_global` (invertido)
 
----
+**v4.0 corrige (VERIFICADO por simulación real, 20/20 tests):**
 
-## 1. Pines reales de las IPs — VERSIÓN FINAL
+El pin real en `r2r_dac_control.v` se llama **`n_rst`**, y su lógica interna es:
 
-### DAC R-2R — Interfaz completa verificada
+```verilog
+always @(posedge clk or posedge n_rst) begin
+    if (n_rst)  rst <= 1'b0;   // n_rst=1 -> rst interno=0 -> IP OPERA
+    else        rst <= 1'b1;   // n_rst=0 -> rst interno=1 -> IP RESETEA
+end
+```
 
-**Módulo top:** `tt_um_mattvenn_r2r_dac` (src/project.v)  
-**Control digital:** `r2r_dac_control` (verilog/rtl/r2r_dac_control.v)  
-**Cosimulación:** entradas/salidas confirmadas por sim/mixed.cir
+`n_rst` se comporta como un **enable activo en alto**, no como un reset invertido convencional (el nombre del pin es engañoso). Esto **coincide exactamente** con la convención de `rst_n` que usamos en el resto del proyecto (activo bajo = en reset):
 
-| Pin | En módulo | Tipo | Conectado a en freq_top | Notas |
+| Nuestra señal | Valor | Significado | `dac_n_rst` debe ser | Resultado en la IP |
 |---|---|---|---|---|
-| `ui_in[7:0]` | top | Digital entrada | `dac_ctrl → dac_word[7:0]` | Dato 8b. Activo cuando `ext_data=1` |
-| `uio_in[0]` | top | Digital entrada | `dac_ctrl → dac_ext_data` | 1=modo externo, 0=rampa interna |
-| `uio_in[1]` | top | Digital entrada | `dac_ctrl → dac_load_div` | Pulso: carga divisor de velocidad |
-| `clk` | top/ctrl | Digital entrada | `clk_dac` (ver nota ⚠️) | Comentario: "expect 10M clock" |
-| `rst_n` | top | Digital entrada | `~rst_n_global` | ⚠️ Activo ALTO en la IP |
-| `n_rst` | ctrl | Digital entrada | (interno al top) | Nombre interno del reset en r2r_dac_control |
-| `ena` | top | Digital entrada | `1'b1` | Enable TinyTapeout, siempre activo |
-| `ua[0]` | top | Analógico salida | `user_analog[1]` | Vout de la escalera R-2R |
-| `VPWR`/`VGND` | top | Alimentación | `VCCD1`/`VSSD1` | 1.8 V digital |
+| `rst_n` | 0 | En reset | 0 | IP resetea ✅ |
+| `rst_n` | 1 | Operando | 1 | IP opera ✅ |
 
-**Señales internas del DAC (para referencia Fase 4/5):**
+**Conexión correcta confirmada: `dac_n_rst = rst_n` — SIN inversión.**
 
-| Señal interna | De | A | Descripción |
-|---|---|---|---|
-| `r2r_out[7:0]` | `r2r_dac_control` | `r2r` (analógico) | 8 bits hacia la escalera |
-| `b[7:0]` | `r2r` analógico | pines de la red | Salidas de la escalera (en cosim: `b7..b0`) |
-| `out` | red R-2R | `ua[0]` | Tensión analógica de salida |
+> Si se conecta invertido (como sugería v3.0), el DAC quedaría permanentemente en reset en el chip real y nunca generaría ninguna salida. Este es el hallazgo más crítico de la Fase 2.
 
-> ⚠️ **Nota de reloj DAC:** El archivo `mixed.cir` usa un oscilador a 1 MHz para el test.
-> El comentario del RTL dice "expect a 10M clock". Opciones para Fase 6:
-> - Dividir `clk_user` (100 MHz) entre 10 con un prescaler dentro de `dac_ctrl.v`
-> - Usar una salida del PLL de Caravel configurada a 10 MHz
-> - **Verificar en Fase 3** si la lógica del divisor interno funciona a 100 MHz
-
-> ⚠️ **Nota de nivel de reset DAC:** `mixed.cir` usa `PULSE 3 0` (3 V).
-> El pad digital de Caravel opera a 1.8 V. Opciones:
-> - Usar pad HVL de Caravel (soporta 3.3 V) para la señal de reset del DAC
-> - Verificar si 1.8 V es suficiente para activar el reset en el proceso sky130
-> - Investigar en Fase 4 con simulación ngspice del nivel de umbral
+*Nota sobre el nivel de 3V mencionado en v3.0 (`mixed.cir: PULSE 3 0`): eso es independiente de esta corrección — se refiere al nivel de tensión analógico de la simulación SPICE original del autor, no a la polaridad lógica del pin. Sigue como pendiente abierto para Fase 4 (ver tabla de pendientes).*
 
 ---
 
-### ADC SAR 12b — Interfaz completa verificada
+## HALLAZGOS DE FASE 2 (verificados por simulación RTL, nuevos en v4.0)
 
-**Bloque analógico:** `sky130_ef_ip__adc3v_12bit` (subcircuito SPICE)  
-**Control SAR digital:** `sar_ctrl #(SIZE=12)` (verilog/sar_ctrl.v)  
-**Sub-IPs internas:** `sky130_ef_ip__cdac3v_12bit` (CDAC) + `sky130_ef_ip__scomp3v` (comparador)
-
-#### Interfaz del control SAR — lo que conecta `adc_ctrl.v`
-
-| Pin (`sar_ctrl`) | Tipo | Conectado a en freq_top | Notas |
+| # | Hallazgo | Verificado en | Impacto |
 |---|---|---|---|
-| `clk` | Digital entrada | `clk_user` de Caravel | |
-| `rst_n` | Digital entrada | `rst_n_global` | Activo bajo — consistente ✅ |
-| `soc` | Digital entrada | `adc_ctrl → adc_soc` | Start Of Conversion (pulso 1 ciclo) |
-| `cmp` | Digital entrada | (interno: `adc_comp_out` del bloque analógico) | No sale al wrapper |
-| `en` | Digital entrada | `adc_ctrl → adc_en` | Habilitación del SAR |
-| `swidth[3:0]` | Digital entrada | `wb_regs → adc_swidth` | Tiempo de muestreo en ciclos |
-| `sample_n` | Digital salida | (interno: `adc_hold` del bloque analógico) | No sale al wrapper |
-| `data[11:0]` | Digital salida | `adc_ctrl → adc_data_raw[11:0]` | **SIZE=12 confirmado** ✅ |
-| `eoc` | Digital salida | `cdc_sync → async_in` | Sincronizar antes de usar |
-| `dac_rst` | Digital salida | (interno: `adc_reset` del bloque analógico) | No sale al wrapper |
+| 1 | `dac_n_rst = rst_n` sin inversión (ver corrección arriba) | `tb_dac_ctrl.v`, 20/20 | Crítico — corrige v3.0 |
+| 2 | Timing real `soc→eoc` de `sar_ctrl`: **`15 + swidth` ciclos** (con SIZE=12) | Medición directa sobre `sar_ctrl.v`, swidth=0→15, swidth=5→20, swidth=15→30 | Confirma diseño de `adc_ctrl.v`; útil para Fase 3 (cálculo de throughput) |
+| 3 | Modelo de comparador SAR para testbenches: `cmp = ((result \| shift) <= target)` | Verificado contra 5 valores (0x000, 0x800, 0xFFF, 0x3E7) con coincidencia exacta | Solo relevante para testbenches futuros (Fase 3), no para el RTL en sí |
+| 4 | `adc_ready` y `data_ready` son banderas persistentes, NO pulsos | Confirmado en `result_latch` y `adc_ctrl`; causó bugs de testbench en ambos módulos | Documentado aquí para que el firmware (Fase 7) no asuma que son pulsos — debe leer y, si necesita re-armar, usar `soft_rst` o esperar el siguiente ciclo de medición |
+| 5 | El modo selftest del DAC ya existe dentro de la IP (`ext_data=0`) | Confirmado en `tb_dac_ctrl.v`, rampa interna incrementando automáticamente | `dac_ctrl.v` no reimplementa la rampa, solo la habilita/deshabilita |
 
-#### Interfaz del bloque analógico — para Xschem/ngspice (Fases 4 y 5)
+---
 
-Pines reales del subcircuito SPICE (verificados desde `netlist/schematic/*.spice`):
+## 1. Pines reales de las IPs — verificados por simulación
 
-| Pin | Tipo | Descripción |
-|---|---|---|
-| `adc_in` | Analógico entrada | Señal a convertir → `user_analog[0]` |
-| `adc_ena` | Digital entrada | Habilitación → de `sar_ctrl.en` internamente |
-| `adc_reset` | Digital entrada | Reset del CDAC → de `sar_ctrl.dac_rst` internamente |
-| `adc_hold` | Digital entrada | Hold del S&H → de `sar_ctrl.sample_n` internamente |
-| `adc_dac_val[11:0]` | Digital entrada | Valor del SAR → de `sar_ctrl.data[11:0]` internamente |
-| `adc_comp_out` | Digital salida | Salida del comparador → a `sar_ctrl.cmp` internamente |
-| `adc_vrefH` | Analógico | Referencia alta → pad analógico externo |
-| `adc_vrefL` | Analógico | Referencia baja → pad analógico externo |
-| `adc_vCM` | Analógico | Modo común → pad analógico externo |
-| `adc_trim` | Analógico | Calibración comparador → pad analógico externo |
-| `vdda`/`vssa` | Alimentación | 3.3 V analógico |
-| `vccd`/`vssd` | Alimentación | 1.8 V digital |
+### DAC R-2R — Interfaz de control digital (`r2r_dac_control`)
 
-> **Nota:** Todos los pines `cmp`, `sample_n`, `dac_rst` son conexiones **internas**
-> al macro del ADC. `freq_top.v` solo ve los pines de `sar_ctrl` (soc, en, swidth,
-> data, eoc). El bloque analógico es completamente opaco desde el exterior digital.
+**Módulo top:** `tt_um_mattvenn_r2r_dac` (src/project.v)
+**Control digital:** `r2r_dac_control` (verilog/rtl/r2r_dac_control.v) — **este es el módulo que `dac_ctrl.v` instancia directamente**
+
+| Pin | Tipo | Conectado desde `dac_ctrl.v` | Notas verificadas |
+|---|---|---|---|
+| `clk` | Digital entrada | `clk` (pasa transparente) | Comentario en IP: "expect a 10M clock" — pendiente verificar a 100MHz en Fase 3 |
+| `n_rst` | Digital entrada | `dac_n_rst = rst_n` | ✅ **Sin inversión** (ver corrección crítica arriba) |
+| `ext_data` | Digital entrada | `dac_ext_data` | 1=modo externo (usa `data`), 0=rampa interna (selftest) |
+| `data[7:0]` | Digital entrada | `dac_data_out = dac_word` | Dato de 8 bits; en modo selftest la IP lo usa como divisor al recibir `load_divider` |
+| `load_divider` | Digital entrada | `dac_load_div` | Pulso de 1 ciclo: carga `data[7:0]` como divisor de velocidad de rampa |
+| `r2r_out[7:0]` | Digital salida | (hacia la escalera R-2R analógica, fuera del alcance de `dac_ctrl.v`) | Verificado: refleja `data` en modo externo; incrementa automáticamente en modo selftest |
+
+**Tabla de velocidad de rampa (modo selftest, divisor cargado vía `load_divider`):**
+
+| Divisor | Comportamiento verificado |
+|---|---|
+| 0 | Avanza ~1 paso cada pocos ciclos de clk (rampa rápida) — confirmado: incrementó de 8 a 13 en 10 ciclos de clk en simulación |
+| N | Avanza 1 paso cada `(N << 8)` ciclos de clk, según fórmula del RTL: `counter >= (divider << 8)` |
+
+### ADC SAR 12b — Interfaz de control digital (`sar_ctrl`)
+
+**Control SAR digital:** `sar_ctrl #(.SIZE(12))` (verilog/sar_ctrl.v) — **este es el módulo que `adc_ctrl.v` instancia directamente**, confirmado con `SIZE(12)` en el testbench oficial de la IP (`adc_testbench.v`, línea de instanciación verificada).
+
+| Pin (`sar_ctrl`) | Tipo | Conectado desde `adc_ctrl.v` | Notas verificadas |
+|---|---|---|---|
+| `clk` | Digital entrada | `clk` (pasa transparente) | |
+| `rst_n` | Digital entrada | `rst_n` (pasa transparente) | Activo bajo — consistente con nuestra convención, sin inversión necesaria |
+| `soc` | Digital entrada | `adc_soc` | Pulso de 1 ciclo, generado por la FSM de `adc_ctrl.v` |
+| `cmp` | Digital entrada | (en freq_top: viene del bloque analógico vía `eoc_sync`/lazo interno; en testbench: modelo de comparador) | No conectado directamente por `adc_ctrl.v` |
+| `en` | Digital entrada | `adc_en` | Habilitado permanentemente tras salir de reset (verificado) |
+| `swidth[3:0]` | Digital entrada | (vía `wb_regs.adc_swidth`, no implementado aún en `adc_ctrl.v` v1 — usa swidth fijo en pruebas) | ⚠️ Pendiente conectar en `freq_top.v` |
+| `data[11:0]` | Digital salida | `adc_data_raw[11:0]` → `adc_ctrl.adc_result` | **SIZE=12 confirmado por simulación**, no solo por inspección |
+| `eoc` | Digital salida | (vía `cdc_sync` en el sistema completo; en el testbench de `adc_ctrl` se conecta directo para aislar el módulo) | Timing verificado: sube exactamente `15+swidth` ciclos después de `soc` |
+| `dac_rst` | Digital salida | (interno, hacia el CDAC del bloque analógico) | No conectado por `adc_ctrl.v` |
+| `sample_n` | Digital salida | (interno, hacia el S&H del bloque analógico) | No conectado por `adc_ctrl.v` |
+
+> **Pendiente para `freq_top.v`:** la entrada `swidth[3:0]` de `adc_ctrl.v` debe conectarse a `wb_regs.adc_swidth` (ya existe esa salida en `wb_regs.v`, verificada en Fase 2). En las pruebas unitarias de `adc_ctrl.v` se usó `swidth=0` fijo para simplificar — confirmar en la integración que la señal fluye correctamente extremo a extremo.
+
+### ADC SAR 12b — Bloque analógico (pendiente de re-verificación)
+
+*Los pines de esta sección provienen de v3.0 (inspección de netlist SPICE), no fueron re-verificados por simulación en Fase 2 porque `adc_ctrl.v` no se conecta a este bloque directamente — esa conexión ocurre en Fase 4 (Xschem). Se mantienen aquí como referencia, marcados como pendientes de confirmación:*
+
+| Pin | Tipo | Descripción | Estado |
+|---|---|---|---|
+| `adc_in` | Analógico entrada | Señal a convertir | ⚠️ Pendiente confirmar en Fase 4 |
+| `adc_ena` | Digital entrada | Habilitación (viene de `sar_ctrl.en`) | ⚠️ Pendiente confirmar en Fase 4 |
+| `adc_reset` | Digital entrada | Reset del CDAC (viene de `sar_ctrl.dac_rst`) | ⚠️ Pendiente confirmar en Fase 4 |
+| `adc_hold` | Digital entrada | Hold del S&H (viene de `sar_ctrl.sample_n`) | ⚠️ Pendiente confirmar en Fase 4 |
+| `adc_dac_val[11:0]` | Digital entrada | Valor del SAR (viene de `sar_ctrl.data`) | ⚠️ Pendiente confirmar en Fase 4 |
+| `adc_comp_out` | Digital salida | Salida del comparador (va a `sar_ctrl.cmp`) | ⚠️ Pendiente confirmar en Fase 4 |
+| `adc_vrefH` / `adc_vrefL` / `adc_vCM` / `adc_trim` | Analógico | Referencias y calibración | ⚠️ Pendiente confirmar en Fase 4 |
 
 ---
 
 ## 2. Pines digitales io_in / io_out del wrapper Caravel
+
+*(Sin cambios respecto a v3.0 — no se tocó en Fase 2)*
 
 | Pin Caravel | Dir | Señal interna | Módulo | Descripción |
 |---|---|---|---|---|
 | `io_in[0]` | entrada | `fx_in` | `freq_counter.v` | Señal de frecuencia externa post-Schmitt |
 | `io_in[1]` | entrada | `ext_rst_n` | `freq_top.v` | Reset externo opcional activo bajo |
 | `io_in[2]` | entrada | `mode_sel_pin` | `wb_regs.v` | 0=conteo directo, 1=recíproco |
-| `io_out[0]` | salida | `data_ready` | `result_latch.v` | '1' cuando resultado válido |
+| `io_out[0]` | salida | `data_ready` | `result_latch.v` | '1' cuando resultado válido (persiste, no es pulso — ver hallazgo #4) |
 | `io_out[1]` | salida | `gate_active` | `gate_timer.v` | '1' durante ventana de medición |
-| `io_out[2]` | salida | `adc_ready` | `adc_ctrl.v` | '1' cuando dato ADC disponible |
+| `io_out[2]` | salida | `adc_ready` | `adc_ctrl.v` | '1' cuando dato ADC disponible (persiste, no es pulso — ver hallazgo #4) |
 | `io_oeb[0:2]` | — | `1'b1` | — | io_in[0:2] como entradas |
 | `io_oeb[3:5]` | — | `1'b0` | — | io_out[0:2] como salidas |
 
 ---
 
-## 3. Registros Wishbone — VERSIÓN FINAL
+## 3. Registros Wishbone — verificado por simulación (30/30 tests en `wb_regs.v`)
 
 Base Caravel: `0x3000_0000`
 
-| Offset | Registro | R/W | Bits | Descripción |
-|---|---|---|---|---|
-| `0x00` | `FREQ_RESULT` | R | [31:0] | Conteos en T_gate |
-| `0x04` | `GATE_CFG` | R/W | [26:0] | Ciclos de T_gate. Default: 100_000_000 |
-| `0x08` | `ADC_DATA` | R | [11:0] | Último valor del ADC (12 bits confirmados) |
-| `0x0C` | `DAC_WORD` | R/W | [7:0] | Dato al DAC (activo en modo ext_data=1) |
-| `0x10` | `STATUS` | R | [3:0] | {gate_active, adc_ready, data_ready, eoc_sync} |
-| `0x14` | `CTRL` | W | [8:0] | Ver detalle abajo |
+| Offset | Registro | R/W | Bits | Descripción | Verificado |
+|---|---|---|---|---|---|
+| `0x00` | `FREQ_RESULT` | R | [31:0] | Conteos en T_gate | ✅ Refleja entrada externa correctamente |
+| `0x04` | `GATE_CFG` | R/W | [26:0] | Ciclos de T_gate. Default: 100_000_000 | ✅ R/W confirmado, default confirmado |
+| `0x08` | `ADC_DATA` | R | [11:0] | Último valor del ADC | ✅ Padding de bits altos en 0 confirmado |
+| `0x0C` | `DAC_WORD` | R/W | [7:0] | Dato al DAC (activo en modo ext_data=1) | ✅ R/W confirmado |
+| `0x10` | `STATUS` | R | [3:0] | `{mode_sel, gate_active, adc_ready, data_ready}` | ✅ Combinación de 4 flags verificada bit a bit |
+| `0x14` | `CTRL` | W | [8:0] | Ver detalle abajo | ✅ Decodificación de los 9 bits verificada individualmente |
 
-**Registro CTRL [0x14]:**
+**Registro CTRL [0x14] — verificado bit por bit:**
 
-| Bits | Campo | Descripción |
+| Bits | Campo | Comportamiento verificado |
 |---|---|---|
-| [0] | `soft_rst` | Reset interno (auto-clear 1 ciclo) |
-| [1] | `mode_sel` | 0=conteo directo, 1=recíproco |
-| [2] | `continuous_adc` | 1=muestreo continuo del ADC |
-| [3] | `dac_ext_data` | 1=DAC usa DAC_WORD; 0=rampa interna de la IP |
-| [4] | `dac_load_div` | Pulso: carga DAC_WORD como divisor de velocidad |
-| [8:5] | `adc_swidth[3:0]` | Tiempo de muestreo ADC en ciclos de clk |
+| [0] | `soft_rst` | Pulso de 1 ciclo, auto-clear confirmado |
+| [1] | `mode_sel` | Persistente (no es pulso), confirmado |
+| [2] | `continuous_adc` | Persistente, confirmado |
+| [3] | `dac_ext_data` | Persistente, confirmado |
+| [4] | `dac_load_div` | Pulso de 1 ciclo, auto-clear confirmado |
+| [8:5] | `adc_swidth[3:0]` | Persistente, confirmado |
+
+> **Nota de v3.0 corregida:** el `STATUS` en v3.0 listaba el orden `{gate_active, adc_ready, data_ready, eoc_sync}`. La implementación real verificada en `wb_regs.v` usa `{mode_sel, gate_active, adc_ready, data_ready}` (sin `eoc_sync`, que no es una señal que `wb_regs.v` reciba directamente). Ver `module_list.md` v3.0 para el detalle completo del módulo.
 
 ---
 
 ## 4. Logic Analyzer
+
+*(Sin cambios respecto a v3.0 — no se tocó ni verificó en Fase 2)*
 
 | Bits | Dir | Señal | Descripción |
 |---|---|---|---|
@@ -165,21 +172,22 @@ Base Caravel: `0x3000_0000`
 
 ## 5. Pines analógicos user_analog
 
-| Pin | Señal IP | IP | Descripción |
-|---|---|---|---|
-| `user_analog[0]` | `adc_in` | ADC SAR 12b | Entrada analógica al ADC |
-| `user_analog[1]` | `ua[0]` | DAC R-2R 8b | Salida analógica del DAC |
-| `user_analog[2]` | `adc_vrefH` | ADC SAR 12b | Referencia alta del ADC |
-| `user_analog[3]` | `adc_vrefL` | ADC SAR 12b | Referencia baja del ADC |
-| `user_analog[4]` | `adc_vCM` | ADC SAR 12b | Modo común del ADC |
-| `user_analog[5..7]` | — | — | Reservados |
+*(Sin cambios respecto a v3.0 — pendiente de confirmación en Fase 4, no tocado en Fase 2)*
 
-> **Actualización v3.0:** Las referencias `adc_vrefH`, `adc_vrefL` y `adc_vCM` necesitan
-> pads analógicos propios — no estaban en v2.0. Se añaden `user_analog[2:4]`.
+| Pin | Señal IP | IP | Estado |
+|---|---|---|---|
+| `user_analog[0]` | `adc_in` | ADC SAR 12b | ⚠️ Pendiente Fase 4 |
+| `user_analog[1]` | `ua[0]` | DAC R-2R 8b | ⚠️ Pendiente Fase 4 |
+| `user_analog[2]` | `adc_vrefH` | ADC SAR 12b | ⚠️ Pendiente Fase 4 |
+| `user_analog[3]` | `adc_vrefL` | ADC SAR 12b | ⚠️ Pendiente Fase 4 |
+| `user_analog[4]` | `adc_vCM` | ADC SAR 12b | ⚠️ Pendiente Fase 4 |
+| `user_analog[5..7]` | — | Reservados | — |
 
 ---
 
 ## 6. Alimentación
+
+*(Sin cambios respecto a v3.0)*
 
 | Dominio | Tensión | Módulos |
 |---|---|---|
@@ -188,17 +196,19 @@ Base Caravel: `0x3000_0000`
 
 ---
 
-## Pendientes resueltos / abiertos
+## Pendientes actualizados tras Fase 2
 
-| # | Pendiente | Estado |
-|---|---|---|
-| ✅ | Confirmar SIZE=12 en sar_ctrl | Resuelto: adc_dac_val[11:0] confirma 12 bits |
-| ✅ | Pines reales del bloque analógico ADC | Resuelto: adc_in, adc_ena, adc_hold, adc_reset, adc_dac_val[11:0], adc_comp_out |
-| ✅ | Pines de cosimulación del DAC | Resuelto: clk, n_rst, ext_data, d[7:0], load_divider → b[7:0] |
-| ⚠️ | Nivel de reset DAC (3V vs 1.8V) | Abierto — investigar en Fase 4 con ngspice |
-| ⚠️ | Frecuencia máxima del DAC (10 MHz comentado) | Abierto — verificar en Fase 3 con cocotb |
-| ⚠️ | Ruta PDK hardcoded en mixed.cir | Abierto — corregir en Fase 5 con $PDK_ROOT |
-| ⚠️ | Referencias vrefH/vrefL/vCM del ADC | Abierto — definir fuente (bandgap externo o resistor divider) en Fase 6 |
+| # | Pendiente | Estado | Fase objetivo |
+|---|---|---|---|
+| ✅ | Polaridad de reset del DAC | **Resuelto en Fase 2** — sin inversión, `dac_n_rst = rst_n` | — |
+| ✅ | SIZE del ADC (8 vs 12) | **Resuelto en Fase 2** — 12 confirmado por simulación | — |
+| ✅ | Timing soc→eoc del ADC | **Resuelto en Fase 2** — `15+swidth` ciclos medido | — |
+| ⚠️ | Conectar `adc_swidth` desde `wb_regs` hasta `sar_ctrl` en la integración completa | Abierto | Fase 2 (freq_top.v) |
+| ⚠️ | Nivel de tensión del reset DAC (3V en `mixed.cir` original) | Abierto — no es polaridad, es nivel de tensión analógica | Fase 4 |
+| ⚠️ | Frecuencia máxima real del DAC a 100MHz (comentario dice 10MHz) | Abierto | Fase 3 (cocotb) |
+| ⚠️ | Pines del bloque analógico del ADC (`adc_in`, `adc_ena`, etc.) | Abierto — no verificado por simulación, solo inspección | Fase 4 |
+| ⚠️ | Ruta PDK hardcoded en `mixed.cir` | Abierto | Fase 5 |
+| ⚠️ | Fuente de referencias `vrefH`/`vrefL`/`vCM` del ADC | Abierto | Fase 6 |
 
 ---
 
@@ -207,5 +217,6 @@ Base Caravel: `0x3000_0000`
 | Versión | Fecha | Cambio |
 |---|---|---|
 | 1.0 | Junio 2025 | Versión inicial basada en suposiciones |
-| 2.0 | Junio 2025 | Pines digitales verificados desde Verilog |
-| 3.0 | Junio 2025 | Pines analógicos verificados desde SPICE; SIZE=12 confirmado; reset DAC 3V identificado; referencias ADC añadidas |
+| 2.0 | Junio 2025 | Pines digitales verificados desde Verilog (inspección) |
+| 3.0 | Junio 2025 | Pines analógicos verificados desde SPICE; SIZE=12 confirmado por inspección; reset DAC marcado como activo alto (sin verificar por simulación) |
+| 4.0 | Junio 2025 | **Fase 2 completada (7/8 módulos) con verificación por simulación real.** Corrige la polaridad del reset del DAC (era incorrecta en v3.0). Confirma timing soc→eoc del ADC. Documenta comportamiento persistente de banderas ready. Separa claramente lo verificado por simulación de lo pendiente de Fase 4 |
