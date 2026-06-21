@@ -33,10 +33,12 @@ module tb_adc_ctrl;
     reg  [11:0] adc_data_raw;
     wire        adc_soc;
     wire        adc_en;
+    wire [3:0]  adc_swidth_out;
     wire [11:0] adc_result;
     wire        adc_ready;
     reg         continuous_en;
     reg         adc_trigger;
+    reg  [3:0]  adc_swidth_in;
 
     integer pass_count;
     integer fail_count;
@@ -45,16 +47,18 @@ module tb_adc_ctrl;
     // Instancia del DUT (adc_ctrl)
     // -------------------------------------------------------------------
     adc_ctrl dut (
-        .clk           (clk),
-        .rst_n         (rst_n),
-        .eoc_sync      (eoc_sync),
-        .adc_data_raw  (adc_data_raw),
-        .adc_soc       (adc_soc),
-        .adc_en        (adc_en),
-        .adc_result    (adc_result),
-        .adc_ready     (adc_ready),
-        .continuous_en (continuous_en),
-        .adc_trigger   (adc_trigger)
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .eoc_sync       (eoc_sync),
+        .adc_data_raw   (adc_data_raw),
+        .adc_soc        (adc_soc),
+        .adc_en         (adc_en),
+        .adc_swidth_out (adc_swidth_out),
+        .adc_result     (adc_result),
+        .adc_ready      (adc_ready),
+        .continuous_en  (continuous_en),
+        .adc_trigger    (adc_trigger),
+        .adc_swidth_in  (adc_swidth_in)
     );
 
     // -------------------------------------------------------------------
@@ -72,7 +76,7 @@ module tb_adc_ctrl;
         .soc       (adc_soc),
         .cmp       (sar_cmp),
         .en        (adc_en),
-        .swidth    (4'd0),       // swidth=0 -> 15 ciclos soc->eoc (verificado)
+        .swidth    (adc_swidth_out), // ahora viene de adc_ctrl (pass-through de wb_regs)
         .sample_n  (sar_sample_n),
         .data      (sar_data),
         .eoc       (sar_eoc),
@@ -191,6 +195,7 @@ module tb_adc_ctrl;
         rst_n         = 0;
         adc_trigger   = 0;
         continuous_en = 0;
+        adc_swidth_in = 4'd0;  // swidth=0 -> 15 ciclos soc->eoc (mismo timing ya verificado)
         target_value  = 12'd0;
 
         $display("");

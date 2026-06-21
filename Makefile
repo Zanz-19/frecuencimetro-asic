@@ -5,6 +5,9 @@
 #   make sim MODULE=cdc_sync                                    → compila y corre el TB
 #   make sim MODULE=adc_ctrl EXTRA_SRC=ip/adc_sar/verilog/sar_ctrl.v
 #                                                                → con dependencia externa (IP real)
+#   make sim MODULE=freq_top EXTRA_SRC="ip/adc_sar/verilog/sar_ctrl.v ip/dac_r2r/verilog/rtl/r2r_dac_control.v"
+#                                                                → freq_top incluye TODOS los .v de rtl/
+#                                                                  automaticamente (ver nota abajo)
 #   make wave MODULE=cdc_sync                                   → abre GTKWave con el .vcd generado
 #   make clean                                                  → borra todos los archivos generados
 #   make list                                                   → lista los módulos disponibles en rtl/
@@ -17,6 +20,13 @@
 # EXTRA_SRC: lista opcional de archivos fuente adicionales (separados por
 # espacio) necesarios para compilar el testbench, típicamente IPs reales
 # bajo ip/ que el módulo bajo prueba instancia directamente.
+#
+# NOTA IMPORTANTE: la compilación incluye TODOS los archivos .v de rtl/
+# automáticamente (no solo rtl/$(MODULE).v). Esto es necesario porque
+# freq_top.v instancia los otros 7 módulos hermanos, y así no hace falta
+# listarlos uno por uno en EXTRA_SRC. Es seguro para los demás módulos:
+# iverilog simplemente ignora los módulos que nadie instancia desde el
+# testbench, así que compilar de más no causa conflictos ni errores.
 
 BUILD_DIR := build/sim
 RTL_DIR   := rtl
@@ -41,7 +51,7 @@ sim:
 	@mkdir -p $(BUILD_DIR)
 	@echo "=== Compilando $(MODULE) ==="
 	iverilog $(IVERILOG_FLAGS) -o $(BUILD_DIR)/tb_$(MODULE).vvp \
-		$(TB_DIR)/tb_$(MODULE).v $(RTL_DIR)/$(MODULE).v $(EXTRA_SRC)
+		$(TB_DIR)/tb_$(MODULE).v $(RTL_DIR)/*.v $(EXTRA_SRC)
 	@echo "=== Ejecutando simulación ==="
 	@rm -f *.vcd
 	vvp $(BUILD_DIR)/tb_$(MODULE).vvp

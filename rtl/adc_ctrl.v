@@ -37,13 +37,20 @@ module adc_ctrl (
     input  wire [11:0] adc_data_raw,   // sar_ctrl.data[11:0]
     output reg          adc_soc,       // → sar_ctrl.soc (pulso de 1 ciclo)
     output reg          adc_en,        // → sar_ctrl.en
+    output wire [3:0]  adc_swidth_out, // → sar_ctrl.swidth (pass-through directo)
     // Interfaz con wb_regs
     output reg  [11:0] adc_result,
     output reg          adc_ready,     // '1' tras la primera conversión completa
     // Configuración
     input  wire         continuous_en, // '1' = muestreo continuo
-    input  wire         adc_trigger    // pulso externo para single-shot
+    input  wire         adc_trigger,   // pulso externo para single-shot
+    input  wire [3:0]  adc_swidth_in  // ← wb_regs.adc_swidth
 );
+
+    // swidth es configuración estática del CPU: se pasa directamente a
+    // sar_ctrl sin necesidad de registrarla en este módulo (sar_ctrl ya
+    // la usa de forma combinacional en su propia FSM interna).
+    assign adc_swidth_out = adc_swidth_in;
 
     // Estados de la FSM de control
     localparam S_IDLE      = 2'b00;
@@ -93,6 +100,24 @@ module adc_ctrl (
                 end
 
                 S_CAPTURE: begin
+                    // HALLAZGO CRÍTICO (Fase 2, integración con sar_ctrl real a
+                    // través de cdc_sync): sar_ctrl.data (y por tanto adc_data_raw)
+                    // solo es válido durante el único ciclo en que sar_ctrl está en
+                    // estado DONE; en el ciclo siguiente sar_ctrl ya volvió a IDLE
+                    // y puso result<=0. Como cdc_sync introduce 2 ciclos de latencia
+                    // en eoc_sync, para cuando eoc_rising se detecta AQUÍ, el dato
+                    // crudo de sar_ctrl.data ya decayó — capturar adc_data_raw en
+                    // este punto (o en S_WAIT_EOC) siempre lee 0, sin importar el
+                    // orden de los estados de esta FSM.
+                    //
+                    // La solución correcta NO es mover esta asignación: es que el
+                    // dato crudo se capture en un registro dedicado en freq_top.v
+                    // (adc_data_latch), disparado directamente por adc_eoc SIN
+                    // pasar por cdc_sync, ya que es un registro de datos (no de
+                    // control) y por tanto tolera el riesgo de metaestabilidad
+                    // mucho mejor que un pulso de control de 1 ciclo. adc_ctrl
+                    // simplemente lee ese registro ya estable cuando eoc_sync
+                    // (la notificación, sincronizada) confirma que hay dato nuevo.
                     adc_result <= adc_data_raw;
                     adc_ready  <= 1'b1;
                     if (continuous_en) begin
