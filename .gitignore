@@ -19,3 +19,9 @@ Thumbs.db
 build/
 *.vvp
 *.vcd
+
+# Fase 3 — cocotb: compilacion y resultados regenerables
+tests/sim_build/
+tests/sweep_results.csv
+tests/error_vs_frequency.png
+tests/sweep_summary.md
