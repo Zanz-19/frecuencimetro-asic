@@ -49,6 +49,9 @@ make sim MODULE=freq_top EXTRA_SRC="ip/adc_sar/verilog/sar_ctrl.v ip/dac_r2r/ver
 
 # Ver las formas de onda del último módulo simulado
 make wave MODULE=<nombre>
+
+# Suite de Fase 3 (cocotb): barrido de frecuencias + análisis Python
+make cocotb
 ```
 
 ## Estado actual
@@ -57,7 +60,7 @@ make wave MODULE=<nombre>
 |---|---|
 | Fase 1 — Especificación | ✅ Completada |
 | Fase 2 — RTL Verilog | ✅ **Completada — 118/118 tests, 8/8 módulos** |
-| Fase 3 — Verificación cocotb | 🔲 Pendiente |
+| Fase 3 — Verificación cocotb | ✅ **Completada — 3/3 tests** |
 | Fase 4 — Xschem analógico | 🔲 Pendiente |
 | Fase 5 — Simulaciones ngspice | 🔲 Pendiente |
 | Fase 6 — Síntesis LibreLane | 🔲 Pendiente |
@@ -76,6 +79,18 @@ make wave MODULE=<nombre>
 | `wb_regs.v` | 30/30 ✅ | — |
 | `freq_top.v` | 12/12 ✅ | ambas IPs simultáneamente |
 
+### Detalle de Fase 3 — verificación con cocotb 2.0
+
+Suite en `tests/`, corrida con `make cocotb` (Python Runner de cocotb 2.0, no el Makefile clásico de 1.x — ver nota de versión en `tests/runner.py`).
+
+| Test | Resultado | Qué verifica |
+|---|---|---|
+| `test_frequency_sweep` | ✅ | Barrido 1 kHz–1 MHz, error relativo 0.00% en todos los puntos |
+| `test_selftest_loop` | ✅ | Camino completo DAC → modelo de Schmitt → freq_counter → FREQ_RESULT |
+| `test_adc_parallel_operation` | ✅ | ADC convirtiendo en paralelo sin interferir con la medición de frecuencia |
+
+`make cocotb` genera además `tests/error_vs_frequency.png` (gráfica log-log de error medido vs error teórico de cuantización) y `tests/sweep_summary.md` (tabla de resultados) — ambos regenerables, no versionados.
+
 ### Hallazgos críticos de Fase 2
 
 Durante la verificación con las IPs reales surgieron dos hallazgos que corrigieron suposiciones de diseño hechas en Fase 1 — documentados en detalle en `spec/pin_map.md` y `spec/module_list.md`:
@@ -83,14 +98,14 @@ Durante la verificación con las IPs reales surgieron dos hallazgos que corrigie
 1. **Polaridad de reset del DAC.** Se asumía que el pin `n_rst` de `r2r_dac_control` requería invertir nuestra señal `rst_n`. La IP real demuestra lo contrario: `n_rst` funciona como un enable activo-alto que coincide exactamente con nuestra convención sin inversión.
 2. **Captura de datos del ADC a través de `cdc_sync`.** `sar_ctrl.data` solo es válido durante 1 ciclo (el estado `DONE`), mientras que `cdc_sync` introduce 2 ciclos de latencia en la señal de notificación `eoc`. Sin un registro de captura inmediata (`adc_data_latch` en `freq_top.v`, disparado por el `eoc` crudo sin sincronizar), el dato se pierde antes de que el resto del sistema pueda reaccionar a la notificación ya sincronizada.
 
-### Qué significa "Fase 2 completada"
+### Qué significa "Fase 2 y 3 completadas"
 
-El núcleo 100% digital del frecuencímetro está diseñado y verificado en simulación, incluyendo su interacción con el comportamiento real (no simplificado) de ambas IPs analógicas. Esto **no** equivale a tener un chip funcional todavía — faltan piezas bloqueantes:
+El núcleo 100% digital del frecuencímetro está diseñado y verificado en simulación —tanto con testbenches Verilog puros (Fase 2) como con cocotb/Python (Fase 3)—, incluyendo su interacción con el comportamiento real (no simplificado) de ambas IPs analógicas. Esto **no** equivale a tener un chip funcional todavía — faltan piezas bloqueantes:
 
-- **Fase 4:** el Schmitt trigger que convierte la señal analógica externa en pulsos digitales no existe aún ni en diseño ni en layout. Hoy `fx_in` se alimenta directamente en simulación.
+- **Fase 4:** el Schmitt trigger que convierte la señal analógica externa en pulsos digitales no existe aún ni en diseño ni en layout. Hoy `fx_in` se alimenta directamente en simulación (y en Fase 3, el modelo de Schmitt en el selftest es solo una comparación digital en Verilog, no un circuito real).
 - **Fase 6:** el RTL nunca se ha sintetizado a un layout físico (GDS). Sin esto no existe ninguna posibilidad de fabricación.
-- **Fase 7:** las dos IPs reales nunca se han instanciado físicamente junto al núcleo digital — solo se simularon juntas en software durante Fase 2.
+- **Fase 7:** las dos IPs reales nunca se han instanciado físicamente junto al núcleo digital — solo se simularon juntas en software durante Fases 2 y 3.
 
 ## Próximo paso
 
-Actualizar `spec/spec.md`, `spec/pin_map.md` y `spec/module_list.md` con el cierre formal de Fase 2 (ya en curso), y luego decidir si se avanza a Fase 3 (cocotb) o directo a Fase 4 (Xschem), dado que el Schmitt trigger es la pieza bloqueante más temprana en la ruta crítica hacia un chip fabricable.
+Avanzar a Fase 4 (Xschem): diseñar el Schmitt trigger real, crear los símbolos de las dos IPs, y construir un testbench de interfaz analógica que cierre el lazo DAC→ADC con componentes verdaderamente analógicos, no modelos digitales de comportamiento.
