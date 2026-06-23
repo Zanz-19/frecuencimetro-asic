@@ -9,12 +9,14 @@
 #                                                                → freq_top incluye TODOS los .v de rtl/
 #                                                                  automaticamente (ver nota abajo)
 #   make wave MODULE=cdc_sync                                   → abre GTKWave con el .vcd generado
+#   make cocotb                                                 → corre la suite de Fase 3 (cocotb + Python)
 #   make clean                                                  → borra todos los archivos generados
 #   make list                                                   → lista los módulos disponibles en rtl/
 #
 # Estructura esperada:
 #   rtl/<modulo>.v       → código fuente del módulo
 #   tb/tb_<modulo>.v     → testbench correspondiente
+#   tests/               → suite de Fase 3 (cocotb): tb_top.v, runner.py, test_*.py
 #   build/sim/           → carpeta de salida (ignorada por git)
 #
 # EXTRA_SRC: lista opcional de archivos fuente adicionales (separados por
@@ -31,17 +33,19 @@
 BUILD_DIR := build/sim
 RTL_DIR   := rtl
 TB_DIR    := tb
+TESTS_DIR := tests
 
 IVERILOG_FLAGS := -g2012 -Wall
 
-.PHONY: sim wave clean list help
+.PHONY: sim wave clean list help cocotb
 
 help:
 	@echo "Uso:"
 	@echo "  make sim MODULE=<nombre> [EXTRA_SRC=\"archivo1.v archivo2.v\"]"
 	@echo "  make wave MODULE=<nombre>   Abre GTKWave con el resultado"
-	@echo "  make clean                 Borra archivos generados"
-	@echo "  make list                  Lista modulos disponibles en rtl/"
+	@echo "  make cocotb                 Corre la suite de Fase 3 (cocotb + Python)"
+	@echo "  make clean                  Borra archivos generados"
+	@echo "  make list                   Lista modulos disponibles en rtl/"
 
 sim:
 	@if [ -z "$(MODULE)" ]; then \
@@ -74,9 +78,24 @@ wave:
 	fi
 	@gtkwave $(BUILD_DIR)/tb_$(MODULE).vcd > /dev/null 2>&1 &
 	@echo "GTKWave abierto en background (PID $$!). La terminal queda libre."
+
+cocotb:
+	@if [ ! -f "$(TESTS_DIR)/runner.py" ]; then \
+		echo "Error: no existe $(TESTS_DIR)/runner.py"; \
+		exit 1; \
+	fi
+	@echo "=== Corriendo suite de Fase 3 (cocotb) ==="
+	@cd $(TESTS_DIR) && python3 runner.py
+	@if [ -f "$(TESTS_DIR)/error_analysis.py" ] && [ -f "$(TESTS_DIR)/sweep_results.csv" ]; then \
+		echo "=== Generando grafica y resumen ==="; \
+		cd $(TESTS_DIR) && python3 error_analysis.py; \
+	fi
+
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -f *.vvp *.vcd
+	rm -rf $(TESTS_DIR)/sim_build $(TESTS_DIR)/__pycache__
+	rm -f $(TESTS_DIR)/sweep_results.csv $(TESTS_DIR)/error_vs_frequency.png $(TESTS_DIR)/sweep_summary.md
 	@echo "Limpieza completa."
 
 list:
