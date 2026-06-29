@@ -1,0 +1,97 @@
+* Schmitt trigger CMOS 6T - TESTBENCH MAESTRO (Fase 4)
+* Reune en un solo archivo TODAS las simulaciones hechas para el sizing final:
+*   - 3 esquinas de proceso (tt/ff/ss) x 4 temperaturas (-40/27/85/125 C) = 12 casos
+*   - Graficas del caso nominal (tt, 27C): lazo de histeresis + forma de onda completa
+*
+* Sizing FINAL validado: MP_FB W=16.0 L=64.0 | MN_FB W=8.0 L=64.0
+*   Histeresis tipica (tt,27C):        43.5 mV
+*   Histeresis minima garantizada PVT: 23.4 mV (esquina ff, 125C)
+*   Histeresis maxima PVT:            142.1 mV (esquina ss, -40C)
+*   Velocidad: peor caso trise=104ns (ss,-40C) = 5.2% del periodo a 500kHz
+*
+* Uso:
+*   ngspice -b schmitt_tb.spice   -> solo resultados numericos (mas rapido)
+*   ngspice schmitt_tb.spice      -> resultados + graficas al final (recomendado)
+*
+* Requiere en la misma carpeta: schmitt_circuit_tt.cir, schmitt_circuit_ff.cir,
+* schmitt_circuit_ss.cir (un .lib de esquina de proceso no se puede cambiar en
+* caliente dentro de .control, por eso cada esquina vive en su propio circuito
+* y este maestro los va cargando uno por uno con 'source').
+
+.control
+
+* ===== Esquina TT =====
+source schmitt_circuit_tt.cir
+foreach ttempval -40 27 85 125
+  alterparam ttemp = $ttempval
+  reset
+  tran 2n 110u
+  meas tran vth find v(vin) when v(vout)=0.9 fall=1
+  meas tran vtl find v(vin) when v(vout)=0.9 rise=1
+  let dvh = vth - vtl
+  meas tran trise   TRIG v(vout) val=0.18 TD=103.5u rise=1 TARG v(vout) val=1.62 TD=103.5u rise=1
+  meas tran tfall   TRIG v(vout) val=1.62 TD=103.5u fall=1 TARG v(vout) val=0.18 TD=103.5u fall=1
+  meas tran tpd_hl  TRIG v(vin)  val=0.9  TD=103.5u rise=1 TARG v(vout) val=0.9  TD=103.5u fall=1
+  meas tran tpd_lh  TRIG v(vin)  val=0.9  TD=103.5u fall=1 TARG v(vout) val=0.9  TD=103.5u rise=1
+  echo "=================================================="
+  echo "CASO: corner=tt temp=$ttempval C"
+  echo "VTH=$&vth V   VTL=$&vtl V   histeresis=$&dvh V"
+  echo "trise=$&trise s   tfall=$&tfall s   tpd_hl=$&tpd_hl s   tpd_lh=$&tpd_lh s"
+  echo "=================================================="
+end
+
+* ===== Esquina FF =====
+source schmitt_circuit_ff.cir
+foreach ttempval -40 27 85 125
+  alterparam ttemp = $ttempval
+  reset
+  tran 2n 110u
+  meas tran vth find v(vin) when v(vout)=0.9 fall=1
+  meas tran vtl find v(vin) when v(vout)=0.9 rise=1
+  let dvh = vth - vtl
+  meas tran trise   TRIG v(vout) val=0.18 TD=103.5u rise=1 TARG v(vout) val=1.62 TD=103.5u rise=1
+  meas tran tfall   TRIG v(vout) val=1.62 TD=103.5u fall=1 TARG v(vout) val=0.18 TD=103.5u fall=1
+  meas tran tpd_hl  TRIG v(vin)  val=0.9  TD=103.5u rise=1 TARG v(vout) val=0.9  TD=103.5u fall=1
+  meas tran tpd_lh  TRIG v(vin)  val=0.9  TD=103.5u fall=1 TARG v(vout) val=0.9  TD=103.5u rise=1
+  echo "=================================================="
+  echo "CASO: corner=ff temp=$ttempval C"
+  echo "VTH=$&vth V   VTL=$&vtl V   histeresis=$&dvh V"
+  echo "trise=$&trise s   tfall=$&tfall s   tpd_hl=$&tpd_hl s   tpd_lh=$&tpd_lh s"
+  echo "=================================================="
+end
+
+* ===== Esquina SS =====
+source schmitt_circuit_ss.cir
+foreach ttempval -40 27 85 125
+  alterparam ttemp = $ttempval
+  reset
+  tran 2n 110u
+  meas tran vth find v(vin) when v(vout)=0.9 fall=1
+  meas tran vtl find v(vin) when v(vout)=0.9 rise=1
+  let dvh = vth - vtl
+  meas tran trise   TRIG v(vout) val=0.18 TD=103.5u rise=1 TARG v(vout) val=1.62 TD=103.5u rise=1
+  meas tran tfall   TRIG v(vout) val=1.62 TD=103.5u fall=1 TARG v(vout) val=0.18 TD=103.5u fall=1
+  meas tran tpd_hl  TRIG v(vin)  val=0.9  TD=103.5u rise=1 TARG v(vout) val=0.9  TD=103.5u fall=1
+  meas tran tpd_lh  TRIG v(vin)  val=0.9  TD=103.5u fall=1 TARG v(vout) val=0.9  TD=103.5u rise=1
+  echo "=================================================="
+  echo "CASO: corner=ss temp=$ttempval C"
+  echo "VTH=$&vth V   VTL=$&vtl V   histeresis=$&dvh V"
+  echo "trise=$&trise s   tfall=$&tfall s   tpd_hl=$&tpd_hl s   tpd_lh=$&tpd_lh s"
+  echo "=================================================="
+end
+
+* ===== Graficas del caso nominal (tt, 27C) =====
+echo ""
+echo "Generando graficas del caso nominal (tt, 27C)..."
+source schmitt_circuit_tt.cir
+alterparam ttemp = 27
+reset
+tran 2n 110u
+write schmitt_nominal.raw
+echo "Si corriste SIN -b: cierra ambas ventanas de grafica para terminar."
+plot vout vs vin
+plot vout vin
+
+.endc
+
+.end
