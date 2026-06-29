@@ -18,6 +18,7 @@ Frecuencímetro digital de señal mixta implementado como ASIC en el proceso CMO
 - **Tensión:** 1.8 V (digital) / 3.3 V (analógico)
 - **Timing ADC verificado:** 15 + swidth ciclos de clk por conversión (SIZE=12)
 - **Reset DAC verificado:** `dac_n_rst = rst_n`, sin inversión (ver hallazgos abajo)
+- **Schmitt trigger:** histéresis garantizada ≥23.4 mV (peor caso PVT), típica 43.5 mV — ver Detalle de Fase 4
 
 ## Estructura del proyecto
 
@@ -61,7 +62,7 @@ make cocotb
 | Fase 1 — Especificación | ✅ Completada |
 | Fase 2 — RTL Verilog | ✅ **Completada — 118/118 tests, 8/8 módulos** |
 | Fase 3 — Verificación cocotb | ✅ **Completada — 3/3 tests** |
-| Fase 4 — Xschem analógico | 🔲 Pendiente |
+| Fase 4 — Xschem analógico | 🟡 **En progreso — Schmitt trigger diseñado y validado en ngspice (PVT completo)** |
 | Fase 5 — Simulaciones ngspice | 🔲 Pendiente |
 | Fase 6 — Síntesis LibreLane | 🔲 Pendiente |
 | Fase 7 — Integración Caravel | 🔲 Pendiente |
@@ -91,6 +92,29 @@ Suite en `tests/`, corrida con `make cocotb` (Python Runner de cocotb 2.0, no el
 
 `make cocotb` genera además `tests/error_vs_frequency.png` (gráfica log-log de error medido vs error teórico de cuantización) y `tests/sweep_summary.md` (tabla de resultados) — ambos regenerables, no versionados.
 
+### Detalle de Fase 4 — Schmitt trigger (en progreso)
+
+Topología CMOS de 6 transistores (2 PMOS + 2 NMOS principales en serie, 1 PMOS + 1 NMOS de realimentación en paralelo, gate de realimentación = vout). Diseñado en Xschem (`xschem/schmitt_trigger.sch`) y validado en ngspice sobre 12 casos de esquina de proceso × temperatura.
+
+| Esquina | -40°C | 27°C | 85°C | 125°C |
+|---|---|---|---|---|
+| TT | 65.95 mV | 43.48 mV | 36.59 mV | 34.12 mV |
+| FF | 28.56 mV | 24.52 mV | 23.58 mV | 23.36 mV (peor caso) |
+| SS | 142.06 mV | 75.13 mV | 55.97 mV | 49.19 mV |
+
+- **Sizing final:** `MP_FB` W=16.0µm/L=64.0µm, `MN_FB` W=8.0µm/L=64.0µm (resto de transistores sin cambios)
+- **Histéresis garantizada (peor caso PVT):** 23.36 mV — corrige el placeholder de >200mV de `spec.md` v1, que era circular (no derivado de una fuente de ruido real)
+- **Velocidad:** peor caso `trise=104ns` a 500kHz (5.2% del periodo) — nunca es el factor limitante
+- Detalle completo, incluyendo por qué no se alcanzaron los 200mV originales, en `spec/spec.md` sección 9
+
+**Cómo correr la validación:**
+```bash
+make simspice       # solo resultados numericos
+make waveschmitt    # con graficas (lazo de histeresis + forma de onda)
+```
+
+**Pendiente para cerrar Fase 4:** símbolos Xschem de las dos IPs analógicas, y `tb_adc_dac_loop.sch` (testbench que cierra el lazo DAC→ADC con componentes analógicos reales, no modelos digitales).
+
 ### Hallazgos críticos de Fase 2
 
 Durante la verificación con las IPs reales surgieron dos hallazgos que corrigieron suposiciones de diseño hechas en Fase 1 — documentados en detalle en `spec/pin_map.md` y `spec/module_list.md`:
@@ -102,10 +126,10 @@ Durante la verificación con las IPs reales surgieron dos hallazgos que corrigie
 
 El núcleo 100% digital del frecuencímetro está diseñado y verificado en simulación —tanto con testbenches Verilog puros (Fase 2) como con cocotb/Python (Fase 3)—, incluyendo su interacción con el comportamiento real (no simplificado) de ambas IPs analógicas. Esto **no** equivale a tener un chip funcional todavía — faltan piezas bloqueantes:
 
-- **Fase 4:** el Schmitt trigger que convierte la señal analógica externa en pulsos digitales no existe aún ni en diseño ni en layout. Hoy `fx_in` se alimenta directamente en simulación (y en Fase 3, el modelo de Schmitt en el selftest es solo una comparación digital en Verilog, no un circuito real).
+- **Fase 4:** el Schmitt trigger ya existe en diseño y está validado en simulación SPICE (ver Detalle de Fase 4 arriba), pero aún no en layout. Faltan también los símbolos Xschem de las dos IPs y el testbench que cierra el lazo DAC→ADC con componentes analógicos reales.
 - **Fase 6:** el RTL nunca se ha sintetizado a un layout físico (GDS). Sin esto no existe ninguna posibilidad de fabricación.
 - **Fase 7:** las dos IPs reales nunca se han instanciado físicamente junto al núcleo digital — solo se simularon juntas en software durante Fases 2 y 3.
 
 ## Próximo paso
 
-Avanzar a Fase 4 (Xschem): diseñar el Schmitt trigger real, crear los símbolos de las dos IPs, y construir un testbench de interfaz analógica que cierre el lazo DAC→ADC con componentes verdaderamente analógicos, no modelos digitales de comportamiento.
+Cerrar Fase 4 (Xschem): crear los símbolos de las dos IPs, y construir `tb_adc_dac_loop.sch` — el testbench de interfaz analógica que cierra el lazo DAC→ADC con el Schmitt trigger ya validado y componentes verdaderamente analógicos, no modelos digitales de comportamiento.
