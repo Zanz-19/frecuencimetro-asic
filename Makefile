@@ -44,7 +44,7 @@ help:
 	@echo "  make sim MODULE=<nombre> [EXTRA_SRC=\"archivo1.v archivo2.v\"]"
 	@echo "  make wave MODULE=<nombre>   Abre GTKWave con el resultado"
 	@echo "  make cocotb                 Corre la suite de Fase 3 (cocotb + Python)"
-	@echo "  make simspice               Corre el testbench PVT del Schmitt trigger (Fase 4)"
+	@echo "  make simspice               Corre el testbench PVT del Schmitt trigger (Fase 5)"
 	@echo "  make waveschmitt            Igual, pero con graficas (ngspice interactivo)"
 	@echo "  make clean                  Borra archivos generados"
 	@echo "  make list                   Lista modulos disponibles en rtl/"
@@ -104,19 +104,20 @@ list:
 	@echo "Modulos disponibles en $(RTL_DIR)/:"
 	@ls $(RTL_DIR)/*.v 2>/dev/null | xargs -n1 basename | sed 's/\.v$$//' || echo "  (ninguno aun)"
 
-# --- Fase 4: Schmitt trigger (ngspice) ---
+# --- Fase 5: caracterizacion del Schmitt trigger (ngspice) ---
+# (el esquematico vive en xschem/ -- Fase 4; el netlist y la simulacion van en sim/ -- Fase 5)
 # Testbench maestro: corre las 3 esquinas de proceso (tt/ff/ss) x 4 temperaturas
 # (-40/27/85/125 C) = 12 casos, mas las graficas del caso nominal (tt, 27C).
-# Requiere en xschem/: schmitt_tb.spice, schmitt_circuit_tt.cir,
+# Requiere en sim/: schmitt_tb.spice, schmitt_circuit_tt.cir,
 # schmitt_circuit_ff.cir, schmitt_circuit_ss.cir
-XSCHEM_DIR := xschem
+SIM_DIR := sim
 SCHMITT_TB := schmitt_tb.spice
 
 simspice:
 	@echo "=== Corriendo testbench PVT del Schmitt trigger (solo resultados) ==="
-	@cd $(XSCHEM_DIR) && ngspice -b $(SCHMITT_TB)
+	@cd $(SIM_DIR) && ngspice -b $(SCHMITT_TB)
 
 waveschmitt:
 	@echo "=== Corriendo testbench del Schmitt trigger con graficas ==="
 	@echo "(ngspice interactivo: cierra las ventanas de grafica para terminar)"
-	@cd $(XSCHEM_DIR) && ngspice $(SCHMITT_TB)
+	@cd $(SIM_DIR) && ngspice $(SCHMITT_TB)
