@@ -2,7 +2,7 @@
 **Proyecto:** Frecuencímetro mixto-señal  
 **PDK:** sky130A · Tensión nominal: 1.8 V (núcleo digital) / 3.3 V (pads analógicos)  
 **Wrapper:** user_project_wrapper de Caravel (efabless)  
-**Estado:** Fases 2-3 completadas (núcleo digital, 118/118 tests) · Fase 4 en progreso — Schmitt trigger diseñado y validado en ngspice (ver sección 9)
+**Estado:** Fases 2-3 completadas (núcleo digital, 118/118 tests) · Fase 4 en progreso (esquemático del Schmitt trigger) · Fase 5 en progreso (caracterización ngspice del Schmitt trigger) — ver secciones 9-10
 
 ---
 
@@ -27,7 +27,7 @@
 | Rango de tensión de entrada | 0 V – 1.8 V | Límite de los pads io_in de sky130 (modo digital) |
 | Rango alternativo | 0 V – 3.3 V | Con divisor resistivo externo + pad analógico |
 | Forma de onda | Sin restricción | El Schmitt trigger extrae los flancos independientemente de la forma |
-| Amplitud mínima útil | > 23.4 mV (pico a pico), tipo 43.5 mV | Histéresis del Schmitt trigger, validada en ngspice sobre 12 casos PVT (3 esquinas × 4 temperaturas). Ver sección 9 |
+| Amplitud mínima útil | > 23.4 mV (pico a pico), tipo 43.5 mV | Histéresis del Schmitt trigger, validada en ngspice sobre 12 casos PVT (3 esquinas × 4 temperaturas). Ver secciones 9-10 |
 
 ## 3. Arquitectura del sistema
 
@@ -100,12 +100,12 @@ CPU → wb_regs.v → dac_ctrl.v → DAC R-2R 8b → [lazo interno] → Schmitt 
 
 | Fase | Criterio de éxito | Estado |
 |---|---|---|
-| Fase 2 (RTL) | Todos los módulos compilan sin errores en iverilog; testbenches unitarios pasan | ✅ 7/8 módulos (118 tests acumulados: 12+12+9+14+13+20+30+8 pendiente de freq_top) |
-| Fase 3 (cocotb) | Error de medición ≤ ±1 Hz para fx en todo el rango con T_gate = 1 s | Pendiente |
-| Fase 4 (Xschem) | Schmitt trigger dispara limpiamente con señales de amplitud > 23.4 mV (peor caso PVT) | ✅ Circuito y sizing validados en ngspice (12 casos PVT). Pendiente: símbolos de las IPs y `tb_adc_dac_loop.sch` |
-| Fase 5 (ngspice) | ENOB del ADC ≥ 10 bits hasta 500 kHz; THD del DAC ≤ 1% | Pendiente |
-| Fase 6 (LibreLane) | DRC: 0 violaciones; LVS: match; STA: slack positivo en todos los paths | Pendiente |
-| Fase 7 (Caravel) | Firmware lee frecuencia correcta por UART; selftest pasa sin señal externa | Pendiente |
+| Fase 2 (RTL) | Todos los módulos compilan sin errores en iverilog; testbenches unitarios pasan | ✅ 118/118 tests, 8/8 módulos |
+| Fase 3 (cocotb) | Error de medición ≤ ±1 Hz para fx en todo el rango con T_gate = 1 s | ✅ 3/3 tests, error 0.00% |
+| Fase 4 (Xschem) | Esquemáticos del Schmitt trigger y de las IPs capturados; testbench de lazo DAC→ADC en Xschem | 🟡 `schmitt_trigger.sch` ✅. Faltan: `dac_ip.sym`, `adc_ip.sym`, `tb_adc_dac_loop.sch` |
+| Fase 5 (ngspice) | ENOB del ADC ≥ 10 bits hasta 500 kHz; THD del DAC ≤ 1%; Schmitt trigger caracterizado PVT | 🟡 Schmitt trigger caracterizado (ver sección 10). Falta: ENOB del ADC, Monte Carlo del DAC |
+| Fase 6 (LibreLane) | DRC: 0 violaciones; LVS: match; STA: slack positivo en todos los paths | 🔲 Pendiente |
+| Fase 7 (Caravel) | Firmware lee frecuencia correcta por UART; selftest pasa sin señal externa | 🔲 Pendiente |
 
 ## 8. Hallazgos críticos de Fase 2 (resumen ejecutivo)
 
@@ -117,21 +117,36 @@ Durante la verificación por simulación de los módulos que envuelven las IPs r
 
 Ambos hallazgos solo fueron posibles porque los testbenches de `adc_ctrl.v` y `dac_ctrl.v` integran las IPs reales (`sar_ctrl.v`, `r2r_dac_control.v`) en lugar de modelos simplificados — ver la convención de testbench correspondiente en `module_list.md` v3.0.
 
-## 9. Hallazgos críticos de Fase 4 (Schmitt trigger, resumen ejecutivo)
+## 9. Hallazgos de Fase 4 (Xschem — esquemáticos)
 
-### 9.1 Corrección del spec de amplitud mínima (era circular)
+Fase 4, según el plan maestro, tiene como objetivo capturar los esquemáticos en Xschem — no ejecutar simulación todavía. El único entregable completado en esta fase fue el esquemático del Schmitt trigger.
 
-La especificación original (v1.0–v1.x) indicaba **">200 mV"** como amplitud mínima útil, con la justificación "determinada por el hysteresis del Schmitt trigger" — es decir, el valor no se derivó de un presupuesto de ruido real de ninguna fuente de señal documentada (sensor, cable, oscilador externo), sino que era un placeholder aspiracional puesto en Fase 1. Validar el diseño en ngspice reveló que esta topología (6T, una sola capa de realimentación) tiene un **techo físico de histéresis muy por debajo de 200 mV** sin recurrir a transistores de canal extremadamente largo (≥300 µm) — ver hallazgo 9.3.
+### 9.1 Esquemático del Schmitt trigger (`xschem/schmitt_trigger.sch`)
 
-**Corrección:** la especificación ahora refleja el valor real validado por simulación (ver 9.2), no un placeholder.
+Topología CMOS de 6 transistores: 2 PMOS + 2 NMOS en el inversor principal (en serie), más 1 PMOS (`MP_FB`) y 1 NMOS (`MN_FB`) de realimentación en paralelo con gate=`vout`. El sizing final se determinó iterativamente en Fase 5 (ver sección 10) y se incorporó de vuelta al esquemático:
 
-### 9.2 Sizing final y validación PVT completa
+- `MP_FB`: W=16.0 µm, L=64.0 µm
+- `MN_FB`: W=8.0 µm, L=64.0 µm
+- Transistores principales: W=2.0/1.0 µm, L=0.15 µm (mínimo del proceso)
 
-**Topología:** 2 PMOS + 2 NMOS principales en serie (inversor base) + 1 PMOS y 1 NMOS de realimentación en paralelo (gate=vout), arquitectura clásica de Schmitt trigger CMOS de 6 transistores.
+### 9.2 Pendientes de Fase 4
 
-**Sizing final:** `MP_FB`: W=16.0 µm, L=64.0 µm | `MN_FB`: W=8.0 µm, L=64.0 µm | transistores principales sin cambios (W=1.0–2.0 µm, L=0.15 µm — mínimo del proceso).
+- `xschem/dac_ip.sym` — símbolo Xschem de la IP del DAC R-2R (base: `ip/dac_r2r/xschem/r2r.sym`)
+- `xschem/adc_ip.sym` — símbolo Xschem de la IP del ADC SAR (base: `ip/adc_sar/xschem/sky130_ef_ip__adc3v_12bit.sym`)
+- `xschem/tb_schmitt.sch` — testbench Xschem del Schmitt trigger con fuente de ruido superpuesto
+- `xschem/tb_adc_dac_loop.sch` — testbench de lazo cerrado DAC→Schmitt→ADC
 
-**Validado en ngspice sobre 12 casos PVT** (esquinas de proceso tt/ff/ss × temperaturas -40/27/85/125°C), testbench `xschem/schmitt_tb.spice`:
+## 10. Hallazgos de Fase 5 (ngspice — caracterización del Schmitt trigger)
+
+La caracterización ngspice del Schmitt trigger se realizó en paralelo con Fase 4 para determinar el sizing final del esquemático. Cubre las tareas 5.1 (transitorio + histéresis) y 5.5 (esquinas de proceso) del plan maestro, más un barrido de temperatura no contemplado originalmente.
+
+### 10.1 Corrección del spec de amplitud mínima (era circular)
+
+La especificación original (v1.0–v1.x) indicaba **">200 mV"** como amplitud mínima útil, con la justificación "determinada por el hysteresis del Schmitt trigger". El valor no se derivó de un presupuesto de ruido real de ninguna fuente de señal documentada — era un placeholder aspiracional de Fase 1. Validar el diseño en ngspice reveló que esta topología (6T, una sola capa de realimentación) tiene un **techo físico de histéresis muy por debajo de 200 mV** sin recurrir a transistores de canal extremadamente largo (≥300 µm). **Corrección:** la especificación refleja ahora el valor real validado por simulación (sección 10.2).
+
+### 10.2 Sizing final y validación PVT completa
+
+**Validado en ngspice sobre 12 casos PVT** (esquinas tt/ff/ss × temperaturas -40/27/85/125°C), testbench `sim/schmitt_tb.spice` (correr con `make simspice` o `make waveschmitt`):
 
 | Esquina | -40°C | 27°C | 85°C | 125°C |
 |---|---|---|---|---|
@@ -141,14 +156,18 @@ La especificación original (v1.0–v1.x) indicaba **">200 mV"** como amplitud m
 
 - **Histéresis garantizada (peor caso PVT):** 23.36 mV (esquina FF, 125°C)
 - **Histéresis típica:** 43.48 mV (esquina TT, 27°C)
-- **Velocidad de conmutación** (prueba con señal cuadrada de 500 kHz, el límite superior de la spec): peor caso `trise=104 ns` (esquina SS, -40°C) = 5.2% del periodo — margen amplio en los 12 casos, la velocidad nunca es el factor limitante.
+- **Velocidad de conmutación** (prueba a 500 kHz, límite superior de la spec): peor caso `trise=104 ns` (SS, -40°C) = 5.2% del periodo — margen amplio en los 12 casos
 
-### 9.3 Por qué no se alcanzaron los 200 mV originales
+### 10.3 Por qué no se alcanzaron los 200 mV originales
 
-Un barrido paramétrico sobre el ancho (W) y largo (L) de canal de los transistores de realimentación mostró que la histéresis escala de forma sub-lineal con W (saturando rápidamente) y aproximadamente lineal con L. Extrapolando la tendencia medida, alcanzar 200 mV requeriría `L≈300 µm` en los transistores de realimentación — técnicamente viable en área (≈0.1–0.15% del presupuesto de 10 mm²) pero un sizing poco práctico para esta topología. La literatura confirma que histéresis grande con CMOS puro típicamente requiere una topología de **doble capa de realimentación** (más transistores), no solo agrandar los transistores existentes. Se optó por cerrar Fase 4 con el sizing de 9.2 (garantiza >23 mV, suficiente margen práctico de ruido) en vez de rediseñar la topología — queda como mejora futura si una fuente de ruido real documentada llegara a exigir más margen.
+Un barrido paramétrico sobre W y L de los transistores de realimentación mostró que la histéresis escala sub-linealmente con W y aproximadamente lineal con L. Alcanzar 200 mV requeriría `L≈300 µm` — viable en área (≈0.1% del presupuesto) pero un sizing poco práctico para esta topología. La literatura confirma que histéresis grande en CMOS puro típicamente requiere una topología de doble capa de realimentación. Se optó por el sizing de 10.2 como balance práctico.
 
-### 9.4 Archivos de la validación
+### 10.4 Archivos de la validación
 
-- `xschem/schmitt_trigger.sch` — esquemático final (sizing de 9.2)
-- `xschem/schmitt_tb.spice` — testbench maestro (correr con `make simspice` o `make waveschmitt` desde la raíz del repo)
-- `xschem/schmitt_circuit_{tt,ff,ss}.cir` — circuitos por esquina de proceso, incluidos por el testbench maestro vía `source`
+- `xschem/schmitt_trigger.sch` — esquemático final (sizing de 10.2)
+- `sim/schmitt_tb.spice` — testbench maestro PVT (13 simulaciones: 12 PVT + 1 nominal con gráficas)
+- `sim/schmitt_circuit_{tt,ff,ss}.cir` — circuitos por esquina, incluidos por el testbench maestro vía `source`
+
+### 10.5 Pendientes de Fase 5
+
+Tareas 5.2 (barrido automático de frecuencias), 5.3 (Monte Carlo de la red R-2R del DAC) y 5.4 (análisis de ENOB del ADC) — no iniciadas, requieren los símbolos de las IPs (Fase 4) primero.
